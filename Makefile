@@ -1,4 +1,4 @@
-DB_URL = "postgresql://root:1qaz@localhost:5432/broker?sslmode=disable"
+DB_URL = "postgresql://root:1qaz@localhost:5433/broker?sslmode=disable"
 
 
 postgres:
