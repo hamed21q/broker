@@ -1,4 +1,7 @@
--- name: Publish :copyfrom
+-- name: BatchPublish :copyfrom
+INSERT INTO messages ("id", "subject", "body", "expiration") VALUES ($1, $2, $3, $4);
+
+-- name: Publish :exec
 INSERT INTO messages ("id", "subject", "body", "expiration") VALUES ($1, $2, $3, $4);
 
 

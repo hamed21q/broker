@@ -50,11 +50,13 @@ func (pm *PrometheusMetrics) PrometheusUnaryCollector(
 	duration := time.Since(start).Seconds()
 	st, _ := status.FromError(err)
 
-	pm.RpcDurations.WithLabelValues(info.FullMethod, st.Code().String()).Observe(duration)
-	if err != nil {
-		pm.RpcCounts.WithLabelValues(info.FullMethod, st.Code().String()).Inc()
-	} else {
-		pm.RpcCounts.WithLabelValues(info.FullMethod, codes.OK.String()).Inc()
-	}
+	go func() {
+		pm.RpcDurations.WithLabelValues(info.FullMethod, st.Code().String()).Observe(duration)
+		if err != nil {
+			pm.RpcCounts.WithLabelValues(info.FullMethod, st.Code().String()).Inc()
+		} else {
+			pm.RpcCounts.WithLabelValues(info.FullMethod, codes.OK.String()).Inc()
+		}
+	}()
 	return resp, err
 }

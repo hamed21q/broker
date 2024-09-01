@@ -9,6 +9,8 @@ type Config struct {
 	GRPCServerAddress       string `mapstructure:"GRPC_SERVER_ADDRESS"`
 	PrometheusMetricAddress string `mapstructure:"PROMETHEUS_METRIC_ADDRESS"`
 	DBSource                string `mapstructure:"DB_SOURCE"`
+	Storage                 string `mapstructure:"STORAGE"`
+	WriteOrder              string `mapstructure:"WRITE_ORDER"`
 }
 
 func setDefaults() {

@@ -11,12 +11,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BatchPublishParams struct {
+	ID         string
+	Subject    string
+	Body       string
+	Expiration pgtype.Int4
+}
+
 const fetch = `-- name: Fetch :one
 select id, subject, body, expiration, create_at from messages where id = $1
 `
 
-func (q *Queries) Fetch(ctx context.Context, id int32) (Message, error) {
-	row := q.db.QueryRow(ctx, fetch, id)
+func (q *Queries) Fetch(ctx context.Context, db DBTX, id string) (Message, error) {
+	row := db.QueryRow(ctx, fetch, id)
 	var i Message
 	err := row.Scan(
 		&i.ID,
@@ -28,9 +35,23 @@ func (q *Queries) Fetch(ctx context.Context, id int32) (Message, error) {
 	return i, err
 }
 
+const publish = `-- name: Publish :exec
+INSERT INTO messages ("id", "subject", "body", "expiration") VALUES ($1, $2, $3, $4)
+`
+
 type PublishParams struct {
-	ID         int32
+	ID         string
 	Subject    string
 	Body       string
 	Expiration pgtype.Int4
+}
+
+func (q *Queries) Publish(ctx context.Context, db DBTX, arg PublishParams) error {
+	_, err := db.Exec(ctx, publish,
+		arg.ID,
+		arg.Subject,
+		arg.Body,
+		arg.Expiration,
+	)
+	return err
 }

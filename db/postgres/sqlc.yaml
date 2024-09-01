@@ -10,3 +10,5 @@ sql:
         out: "./crud"
         sql_package: "pgx/v5"
         emit_empty_slices: true
+        emit_methods_with_db_argument: true
+

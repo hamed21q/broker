@@ -4,7 +4,7 @@ import (
 	"BaleBroker/pkg"
 	"BaleBroker/utils"
 	"context"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"log"
 	"sync"
@@ -14,17 +14,17 @@ import (
 
 var (
 	mainCtx = context.Background()
-	pd      *PostgresDb
+	pd      *BatchPostgresDb
 	id      pkg.Identifier
 )
 
 func TestMain(m *testing.M) {
 	id = pkg.NewSequentialIdentifier()
-	conn, err := pgx.Connect(context.Background(), "postgresql://root:1qaz@localhost:5432/broker?sslmode=disable")
+	conn, err := pgxpool.New(context.Background(), "postgresql://root:1qaz@localhost:5432/broker?sslmode=disable")
 	if err != nil {
 		log.Fatalf("database unreachable %v\n", err.Error())
 	}
-	pd = NewPostgresDb(conn)
+	pd = NewBatchPostgresDb(conn)
 	m.Run()
 }
 

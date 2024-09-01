@@ -9,13 +9,13 @@ import (
 	"context"
 )
 
-// iteratorForPublish implements pgx.CopyFromSource.
-type iteratorForPublish struct {
-	rows                 []PublishParams
+// iteratorForBatchPublish implements pgx.CopyFromSource.
+type iteratorForBatchPublish struct {
+	rows                 []BatchPublishParams
 	skippedFirstNextCall bool
 }
 
-func (r *iteratorForPublish) Next() bool {
+func (r *iteratorForBatchPublish) Next() bool {
 	if len(r.rows) == 0 {
 		return false
 	}
@@ -27,7 +27,7 @@ func (r *iteratorForPublish) Next() bool {
 	return len(r.rows) > 0
 }
 
-func (r iteratorForPublish) Values() ([]interface{}, error) {
+func (r iteratorForBatchPublish) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].ID,
 		r.rows[0].Subject,
@@ -36,10 +36,10 @@ func (r iteratorForPublish) Values() ([]interface{}, error) {
 	}, nil
 }
 
-func (r iteratorForPublish) Err() error {
+func (r iteratorForBatchPublish) Err() error {
 	return nil
 }
 
-func (q *Queries) Publish(ctx context.Context, arg []PublishParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"messages"}, []string{"id", "subject", "body", "expiration"}, &iteratorForPublish{rows: arg})
+func (q *Queries) BatchPublish(ctx context.Context, db DBTX, arg []BatchPublishParams) (int64, error) {
+	return db.CopyFrom(ctx, []string{"messages"}, []string{"id", "subject", "body", "expiration"}, &iteratorForBatchPublish{rows: arg})
 }

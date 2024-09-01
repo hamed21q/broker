@@ -5,6 +5,7 @@ import (
 	"BaleBroker/pkg"
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -42,7 +43,8 @@ func (broker *BaleBroker) Publish(ctx context.Context, subject string, msg pkg.M
 	msg.CreatedAt = time.Now()
 	err := broker.db.Save(ctx, msg, subject)
 	if err != nil {
-		return 0, err // TODO: do not return exact error
+		log.Printf(err.Error())
+		return 0, ErrStoreFailed
 	}
 	broker.mu.RLock()
 	defer broker.mu.RUnlock()

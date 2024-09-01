@@ -9,7 +9,7 @@ import (
 )
 
 type Message struct {
-	ID         int32
+	ID         string
 	Subject    string
 	Body       string
 	Expiration pgtype.Int4

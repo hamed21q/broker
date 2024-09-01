@@ -1,5 +1,5 @@
 create table "messages" (
-    "id" integer PRIMARY KEY,
+    "id" varchar PRIMARY KEY,
     "subject" varchar not null,
     "body" varchar not null,
     expiration integer,
