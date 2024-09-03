@@ -11,6 +11,15 @@ services:
       GRPC_SERVER_ADDRESS: "0.0.0.0:9090"
       PROMETHEUS_METRIC_ADDRESS: "0.0.0.0:9091"
       DB_SOURCE: postgresql://root:1qaz@postgres:5432/broker?sslmode=disable
+      STORAGE: "POSTGRES"
+      WriteOrder: "BATCH"
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+    depends_on:
+      - postgres
 
   prometheus:
     image: prom/prometheus

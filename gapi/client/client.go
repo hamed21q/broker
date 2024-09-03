@@ -17,7 +17,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	var requestPerSec int32 = 10
+	var requestPerSec int32 = 1500
 
 	go func() {
 		for {
@@ -32,26 +32,24 @@ func main() {
 		}
 	}()
 
+	client := pb.NewBrokerClient(conn)
 	for {
-		for {
-			currentRPS := atomic.LoadInt32(&requestPerSec)
-			var i int32
-			for i = 0; i < currentRPS; i++ {
-				go func() {
-					client := pb.NewBrokerClient(conn)
+		currentRPS := atomic.LoadInt32(&requestPerSec)
+		var i int32
+		for i = 0; i < currentRPS; i++ {
+			go func() {
 
-					req := &pb.PublishRequest{
-						Subject:           "ali",
-						Body:              []byte("hello"),
-						ExpirationSeconds: 60,
-					}
-					_, err := client.Publish(context.Background(), req)
-					if err != nil {
-						log.Printf("Error while calling Publish: %v", err)
-					}
-				}()
-			}
-			time.Sleep(time.Second)
+				req := &pb.PublishRequest{
+					Subject:           "ali",
+					Body:              []byte("hello"),
+					ExpirationSeconds: 60,
+				}
+				_, err := client.Publish(context.Background(), req)
+				if err != nil {
+					log.Printf("Error while calling Publish: %v", err)
+				}
+			}()
 		}
+		time.Sleep(time.Second)
 	}
 }
