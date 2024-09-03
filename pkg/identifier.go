@@ -1,6 +1,14 @@
 package pkg
 
-import "sync"
+import (
+	db "BaleBroker/db/postgres/crud"
+	"context"
+	"errors"
+	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"log"
+	"sync"
+)
 
 type Identifier interface {
 	GetID(string) int
@@ -16,6 +24,22 @@ func NewSequentialIdentifier() *SequentialIdentifier {
 		sequences: make(map[string]*SubjectSequence),
 		mutex:     &sync.Mutex{},
 	}
+}
+
+func (si *SequentialIdentifier) AddSequence(subject string, init int) error {
+	si.mutex.Lock()
+	defer si.mutex.Unlock()
+
+	if _, exists := si.sequences[subject]; exists {
+		return errors.New(fmt.Sprintf("%v already exists", subject))
+	}
+
+	newSequence := &SubjectSequence{
+		mu:     &sync.Mutex{},
+		nextID: init,
+	}
+	si.sequences[subject] = newSequence
+	return nil
 }
 
 func (si *SequentialIdentifier) GetID(subject string) int {
@@ -49,4 +73,38 @@ func (sq *SubjectSequence) GetID() int {
 	id := sq.nextID
 	sq.nextID++
 	return id
+}
+
+type Sync interface {
+	Sync(ctx context.Context) error
+}
+
+type PGSync struct {
+	queries    *db.Queries
+	pool       *pgxpool.Pool
+	identifier *SequentialIdentifier
+}
+
+func NewPGSync(queries *db.Queries, pool *pgxpool.Pool, identifier *SequentialIdentifier) *PGSync {
+	return &PGSync{queries: queries, pool: pool, identifier: identifier}
+}
+
+func (pgs *PGSync) Sync(ctx context.Context) error {
+	conn, err := pgs.pool.Acquire(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	ids, err := pgs.queries.LastId(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		err := pgs.identifier.AddSequence(id.Subject, int(id.Max.(int32))+1)
+		if err != nil {
+			log.Println(err.Error())
+		}
+	}
+	return nil
 }

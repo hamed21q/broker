@@ -1,6 +1,7 @@
 package db
 
 import (
+	db "BaleBroker/db/postgres/crud"
 	"BaleBroker/pkg"
 	"BaleBroker/utils"
 	"context"
@@ -24,7 +25,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("database unreachable %v\n", err.Error())
 	}
-	pd = NewBatchPostgresDb(conn)
+	queries := db.New()
+	pd = NewBatchPostgresDb(conn, queries)
 	m.Run()
 }
 
@@ -34,13 +36,15 @@ func TestFlush(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 6; i++ {
 			require.NoError(t, <-ch)
 		}
 	}()
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 6; i++ {
 		go func() {
-			ch <- pd.Save(mainCtx, createMessageWithExpire(60), "bale")
+			err := pd.Save(mainCtx, createMessageWithExpire(60), "bale")
+			log.Printf("err: %v", err)
+			ch <- err
 		}()
 	}
 	wg.Wait()

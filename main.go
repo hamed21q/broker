@@ -5,13 +5,12 @@ import (
 	db "BaleBroker/db"
 	memory "BaleBroker/db/memory"
 	postgres "BaleBroker/db/postgres"
+	crud "BaleBroker/db/postgres/crud"
 	"BaleBroker/gapi/pb"
 	"BaleBroker/gapi/server"
 	"BaleBroker/pkg"
 	"BaleBroker/utils"
 	"context"
-	"errors"
-	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
@@ -27,11 +26,34 @@ func main() {
 	if err != nil {
 		log.Fatalf("can not load the config: %v", err)
 	}
-	storage, err := getStorage(&config)
-	if err != nil {
-		log.Fatal(err)
-	}
+	var storage db.DB
 	idGen := pkg.NewSequentialIdentifier()
+
+	switch config.Storage {
+	case "POSTGRES":
+		connPool, err := pgxpool.NewWithConfig(context.Background(), createPool(config.DBSource))
+		if err != nil {
+			log.Fatalf("can not connect to : %v", config.DBSource)
+		}
+
+		queries := crud.New()
+		idSync := pkg.NewPGSync(queries, connPool, idGen)
+		err = idSync.Sync(context.Background())
+		if err != nil {
+			log.Fatalf("can not sync with db : %v", err.Error())
+		}
+
+		if config.WriteOrder == "BATCH" {
+			storage = postgres.NewBatchPostgresDb(connPool, queries)
+		} else {
+			storage = postgres.NewParallelPostgresDb(connPool, queries)
+		}
+	case "MEMORY":
+		storage = memory.NewMemoryDB()
+	default:
+		log.Fatalf("invalid storage: %v", config.Storage)
+	}
+
 	baleBroker := broker.NewBaleBroker(storage, idGen)
 	rpcServer := server.NewServer(baleBroker)
 	prometheus := server.NewPrometheusMetrics()
@@ -58,13 +80,14 @@ func main() {
 		log.Fatalf("can not start grpc server: %v", err)
 	}
 }
+
 func createPool(dbUrl string) *pgxpool.Config {
 	dbConfig, err := pgxpool.ParseConfig(dbUrl)
 	if err != nil {
 		log.Fatal("Failed to create a config, error: ", err)
 	}
 
-	dbConfig.MaxConns = int32(2)
+	dbConfig.MaxConns = int32(15)
 	dbConfig.MinConns = int32(0)
 	dbConfig.MaxConnLifetime = time.Hour
 	dbConfig.MaxConnIdleTime = time.Minute * 30
@@ -72,23 +95,4 @@ func createPool(dbUrl string) *pgxpool.Config {
 	dbConfig.ConnConfig.ConnectTimeout = time.Second * 5
 
 	return dbConfig
-}
-func getStorage(config *utils.Config) (db.DB, error) {
-	log.Printf("set %v as storage service \n", config.Storage)
-	switch config.Storage {
-	case "POSTGRES":
-		connPool, err := pgxpool.NewWithConfig(context.Background(), createPool(config.DBSource))
-		if err != nil {
-			return nil, errors.New(fmt.Sprintf("can not connect to : %v", config.DBSource))
-		}
-		if config.WriteOrder == "BATCH" {
-			return postgres.NewBatchPostgresDb(connPool), nil
-		} else {
-			return postgres.NewParallelPostgresDb(connPool), nil
-		}
-	case "MEMORY":
-		return memory.NewMemoryDB(), nil
-	default:
-		return nil, errors.New(fmt.Sprintf("invalid storage: %v", config.Storage))
-	}
 }

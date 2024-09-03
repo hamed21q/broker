@@ -4,17 +4,15 @@ import (
 	db "BaleBroker/db/postgres/crud"
 	"BaleBroker/pkg"
 	"context"
-	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"log"
 	"sync"
 	"time"
 )
 
 type PostgresDb struct {
-	conn *db.Queries
-	pool *pgxpool.Pool
+	queries *db.Queries
+	pool    *pgxpool.Pool
 }
 
 func (pd *PostgresDb) Fetch(ctx context.Context, subject string, id int) (*pkg.Message, error) {
@@ -23,7 +21,7 @@ func (pd *PostgresDb) Fetch(ctx context.Context, subject string, id int) (*pkg.M
 		return nil, err
 	}
 	defer conn.Release()
-	fetch, err := pd.conn.Fetch(ctx, conn, fmt.Sprintf("%v:%v", subject, id))
+	fetch, err := pd.queries.Fetch(ctx, conn, int32(id))
 	if err != nil {
 		return nil, err
 	}
@@ -44,10 +42,13 @@ type BatchPostgresDb struct {
 	capacity chan bool
 }
 
-func NewBatchPostgresDb(pool *pgxpool.Pool) *BatchPostgresDb {
+const BatchSize = 1000
+
+func NewBatchPostgresDb(pool *pgxpool.Pool, queries *db.Queries) *BatchPostgresDb {
 	pd := &BatchPostgresDb{
-		PostgresDb: PostgresDb{conn: db.New(), pool: pool},
-		ticker:     time.NewTicker(100 * time.Millisecond),
+		PostgresDb: PostgresDb{queries: queries, pool: pool},
+		ticker:     time.NewTicker(time.Second),
+		capacity:   make(chan bool, 1),
 	}
 	go pd.flush()
 	return pd
@@ -56,7 +57,7 @@ func NewBatchPostgresDb(pool *pgxpool.Pool) *BatchPostgresDb {
 func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject string) error {
 	d := make(chan error)
 	arg := db.BatchPublishParams{
-		ID:         fmt.Sprintf("%v:%v", subject, msg.Id),
+		ID:         int32(msg.Id),
 		Expiration: pgtype.Int4{Int32: int32(msg.Expiration.Seconds()), Valid: true},
 		Body:       msg.Body,
 		Subject:    subject,
@@ -64,35 +65,49 @@ func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject st
 	pd.mu.Lock()
 	pd.err = append(pd.err, d)
 	pd.messages = append(pd.messages, arg)
+	cp := len(pd.messages)
 	pd.mu.Unlock()
-	if err := <-d; err != nil {
+	if cp >= BatchSize {
+		pd.capacity <- true
+	}
+	err := <-d
+	if err != nil {
 		return err
 	}
 	return nil
 }
 
+func (pd *BatchPostgresDb) notifyError(err error, errs []chan error) {
+	for _, res := range errs {
+		res <- err
+		close(res)
+	}
+}
+
 func (pd *BatchPostgresDb) flush() {
+	persist := func() {
+		pd.mu.Lock()
+		msgs := pd.messages
+		errs := pd.err
+		pd.messages = pd.messages[:0:0]
+		pd.err = pd.err[:0:0]
+		pd.mu.Unlock()
+
+		conn, err := pd.pool.Acquire(context.Background())
+		if err != nil {
+			pd.notifyError(err, errs)
+			return
+		}
+		defer conn.Release()
+		_, err = pd.queries.BatchPublish(context.Background(), conn, msgs)
+		pd.notifyError(err, errs)
+	}
 	for {
 		select {
+		case <-pd.capacity:
+			persist()
 		case <-pd.ticker.C:
-			conn, err := pd.pool.Acquire(context.Background())
-			if err != nil {
-				continue
-			}
-			defer conn.Release()
-			pd.mu.Lock()
-			_, err = pd.conn.BatchPublish(context.Background(), conn, pd.messages)
-			if err != nil {
-				log.Printf("error on writing to db %v\n", err.Error())
-			}
-			for _, res := range pd.err {
-				res <- err
-				close(res)
-			}
-			pd.messages = pd.messages[:0:0]
-			pd.err = pd.err[:0:0]
-			pd.mu.Unlock()
-		default:
+			persist()
 		}
 	}
 }
@@ -103,7 +118,7 @@ type ParallelPostgresDb struct {
 
 func (pd *ParallelPostgresDb) Save(ctx context.Context, msg pkg.Message, subject string) error {
 	arg := db.PublishParams{
-		ID:         fmt.Sprintf("%v:%v", subject, msg.Id),
+		ID:         int32(msg.Id),
 		Expiration: pgtype.Int4{Int32: int32(msg.Expiration.Seconds()), Valid: true},
 		Body:       msg.Body,
 		Subject:    subject,
@@ -113,15 +128,15 @@ func (pd *ParallelPostgresDb) Save(ctx context.Context, msg pkg.Message, subject
 		return err
 	}
 	defer conn.Release()
-	err = pd.conn.Publish(ctx, conn, arg)
+	err = pd.queries.Publish(ctx, conn, arg)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func NewParallelPostgresDb(pool *pgxpool.Pool) *ParallelPostgresDb {
+func NewParallelPostgresDb(pool *pgxpool.Pool, queries *db.Queries) *ParallelPostgresDb {
 	return &ParallelPostgresDb{
-		PostgresDb: PostgresDb{conn: db.New(), pool: pool},
+		PostgresDb: PostgresDb{queries: queries, pool: pool},
 	}
 }

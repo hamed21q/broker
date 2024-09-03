@@ -7,3 +7,6 @@ INSERT INTO messages ("id", "subject", "body", "expiration") VALUES ($1, $2, $3,
 
 -- name: Fetch :one
 select * from messages where id = $1;
+
+-- name: LastId :many
+select subject, max(id) from messages group by subject;

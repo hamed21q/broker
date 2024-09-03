@@ -12,7 +12,7 @@ import (
 )
 
 type BatchPublishParams struct {
-	ID         string
+	ID         int32
 	Subject    string
 	Body       string
 	Expiration pgtype.Int4
@@ -22,7 +22,7 @@ const fetch = `-- name: Fetch :one
 select id, subject, body, expiration, create_at from messages where id = $1
 `
 
-func (q *Queries) Fetch(ctx context.Context, db DBTX, id string) (Message, error) {
+func (q *Queries) Fetch(ctx context.Context, db DBTX, id int32) (Message, error) {
 	row := db.QueryRow(ctx, fetch, id)
 	var i Message
 	err := row.Scan(
@@ -35,12 +35,41 @@ func (q *Queries) Fetch(ctx context.Context, db DBTX, id string) (Message, error
 	return i, err
 }
 
+const lastId = `-- name: LastId :many
+select subject, max(id) from messages group by subject
+`
+
+type LastIdRow struct {
+	Subject string
+	Max     interface{}
+}
+
+func (q *Queries) LastId(ctx context.Context, db DBTX) ([]LastIdRow, error) {
+	rows, err := db.Query(ctx, lastId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LastIdRow{}
+	for rows.Next() {
+		var i LastIdRow
+		if err := rows.Scan(&i.Subject, &i.Max); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const publish = `-- name: Publish :exec
 INSERT INTO messages ("id", "subject", "body", "expiration") VALUES ($1, $2, $3, $4)
 `
 
 type PublishParams struct {
-	ID         string
+	ID         int32
 	Subject    string
 	Body       string
 	Expiration pgtype.Int4
