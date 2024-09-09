@@ -36,26 +36,21 @@ func (pd *PostgresDb) Fetch(ctx context.Context, subject string, id int) (*pkg.M
 type BatchPostgresDb struct {
 	PostgresDb
 	messages []db.BatchPublishParams
-	ticker   *time.Ticker
 	mu       sync.Mutex
+	counter  int
 	err      []chan error
-	capacity chan bool
 }
 
-const BatchSize = 1000
+const BatchSize = 500
 
 func NewBatchPostgresDb(pool *pgxpool.Pool, queries *db.Queries) *BatchPostgresDb {
-	pd := &BatchPostgresDb{
+	return &BatchPostgresDb{
 		PostgresDb: PostgresDb{queries: queries, pool: pool},
-		ticker:     time.NewTicker(time.Second),
-		capacity:   make(chan bool, 1),
 	}
-	go pd.flush()
-	return pd
 }
 
 func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject string) error {
-	d := make(chan error)
+	result := make(chan error)
 	arg := db.BatchPublishParams{
 		ID:         int32(msg.Id),
 		Expiration: pgtype.Int4{Int32: int32(msg.Expiration.Seconds()), Valid: true},
@@ -63,52 +58,41 @@ func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject st
 		Subject:    subject,
 	}
 	pd.mu.Lock()
-	pd.err = append(pd.err, d)
+	pd.err = append(pd.err, result)
 	pd.messages = append(pd.messages, arg)
-	cp := len(pd.messages)
-	pd.mu.Unlock()
-	if cp >= BatchSize {
-		pd.capacity <- true
+	pd.counter++
+	if pd.counter == BatchSize {
+		pd.counter = 0
+		messages := make([]db.BatchPublishParams, BatchSize)
+		copy(messages, pd.messages)
+		errs := make([]chan error, len(pd.messages))
+		copy(errs, pd.err)
+		pd.messages = pd.messages[:0:0]
+		pd.err = pd.err[:0:0]
+		go pd.persist(ctx, messages, errs)
 	}
-	err := <-d
+	pd.mu.Unlock()
+	err := <-result
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
+func (pd *BatchPostgresDb) persist(ctx context.Context, messages []db.BatchPublishParams, errs []chan error) {
+	conn, err := pd.pool.Acquire(context.Background())
+	if err != nil {
+		pd.notifyError(err, errs)
+		return
+	}
+	defer conn.Release()
+	_, err = pd.queries.BatchPublish(ctx, conn, messages)
+	pd.notifyError(err, errs)
+}
+
 func (pd *BatchPostgresDb) notifyError(err error, errs []chan error) {
 	for _, res := range errs {
 		res <- err
-		close(res)
-	}
-}
-
-func (pd *BatchPostgresDb) flush() {
-	persist := func() {
-		pd.mu.Lock()
-		msgs := pd.messages
-		errs := pd.err
-		pd.messages = pd.messages[:0:0]
-		pd.err = pd.err[:0:0]
-		pd.mu.Unlock()
-
-		conn, err := pd.pool.Acquire(context.Background())
-		if err != nil {
-			pd.notifyError(err, errs)
-			return
-		}
-		defer conn.Release()
-		_, err = pd.queries.BatchPublish(context.Background(), conn, msgs)
-		pd.notifyError(err, errs)
-	}
-	for {
-		select {
-		case <-pd.capacity:
-			persist()
-		case <-pd.ticker.C:
-			persist()
-		}
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"BaleBroker/utils"
 	"context"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/assert"
 	"log"
 	"sync"
 	"testing"
@@ -21,7 +21,7 @@ var (
 
 func TestMain(m *testing.M) {
 	id = pkg.NewSequentialIdentifier()
-	conn, err := pgxpool.New(context.Background(), "postgresql://root:1qaz@localhost:5432/broker?sslmode=disable")
+	conn, err := pgxpool.New(context.Background(), "postgresql://root:1qaz@localhost:5433/broker?sslmode=disable")
 	if err != nil {
 		log.Fatalf("database unreachable %v\n", err.Error())
 	}
@@ -31,20 +31,14 @@ func TestMain(m *testing.M) {
 }
 
 func TestFlush(t *testing.T) {
-	ch := make(chan error)
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 6; i++ {
-			require.NoError(t, <-ch)
-		}
-	}()
-	for i := 0; i < 6; i++ {
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			err := pd.Save(mainCtx, createMessageWithExpire(60), "bale")
-			log.Printf("err: %v", err)
-			ch <- err
+			assert.NoError(t, err)
 		}()
 	}
 	wg.Wait()
@@ -54,7 +48,7 @@ func createMessageWithExpire(duration time.Duration) pkg.Message {
 	body := utils.RandomString(7)
 
 	return pkg.Message{
-		Id:         id.GetID("bale"),
+		Id:         id.GetID(mainCtx, "bale"),
 		Body:       body,
 		Expiration: duration,
 	}
