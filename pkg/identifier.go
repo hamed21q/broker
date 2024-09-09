@@ -11,7 +11,7 @@ import (
 )
 
 type Identifier interface {
-	GetID(string) int
+	GetID(context.Context, string) int
 }
 
 type SequentialIdentifier struct {
@@ -42,7 +42,9 @@ func (si *SequentialIdentifier) AddSequence(subject string, init int) error {
 	return nil
 }
 
-func (si *SequentialIdentifier) GetID(subject string) int {
+func (si *SequentialIdentifier) GetID(ctx context.Context, subject string) int {
+	ctx, span := Tracer.Start(ctx, "pkg.SequentialIdentifier.GetID")
+	defer span.End()
 	seq := si.getSubjectMutex(subject)
 	return seq.GetID()
 }
@@ -90,6 +92,7 @@ func NewPGSync(queries *db.Queries, pool *pgxpool.Pool, identifier *SequentialId
 }
 
 func (pgs *PGSync) Sync(ctx context.Context) error {
+	log.Println("syncing pg with Sequential Identifier")
 	conn, err := pgs.pool.Acquire(context.Background())
 	if err != nil {
 		return err

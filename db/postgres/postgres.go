@@ -4,8 +4,10 @@ import (
 	db "BaleBroker/db/postgres/crud"
 	"BaleBroker/pkg"
 	"context"
+	"errors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"log"
 	"sync"
 	"time"
 )
@@ -16,7 +18,7 @@ type PostgresDb struct {
 }
 
 func (pd *PostgresDb) Fetch(ctx context.Context, subject string, id int) (*pkg.Message, error) {
-	conn, err := pd.pool.Acquire(context.Background())
+	conn, err := pd.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -39,17 +41,48 @@ type BatchPostgresDb struct {
 	mu       sync.Mutex
 	counter  int
 	err      []chan error
+	ticker   *time.Ticker
 }
 
-const BatchSize = 500
+const BatchSize = 1000
 
 func NewBatchPostgresDb(pool *pgxpool.Pool, queries *db.Queries) *BatchPostgresDb {
-	return &BatchPostgresDb{
+	pd := &BatchPostgresDb{
 		PostgresDb: PostgresDb{queries: queries, pool: pool},
+		ticker:     time.NewTicker(time.Second),
+	}
+	go pd.TimeFlush()
+	return pd
+}
+
+func (pd *BatchPostgresDb) TimeFlush() {
+	for {
+		select {
+		case <-pd.ticker.C:
+			pd.mu.Lock()
+			messages, errs := pd.getMessages()
+			pd.mu.Unlock()
+			if len(messages) > 0 {
+				pd.persist(context.Background(), messages, errs)
+			}
+		}
 	}
 }
 
+func (pd *BatchPostgresDb) getMessages() ([]db.BatchPublishParams, []chan error) {
+	pd.counter = 0
+	messages := make([]db.BatchPublishParams, len(pd.messages))
+	copy(messages, pd.messages)
+	errs := make([]chan error, len(pd.messages))
+	copy(errs, pd.err)
+	pd.messages = pd.messages[:0:0]
+	pd.err = pd.err[:0:0]
+	return messages, errs
+}
+
 func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject string) error {
+	ctx, span := pkg.Tracer.Start(ctx, "pgx.BatchPostgresDb.Save")
+	defer span.End()
 	result := make(chan error)
 	arg := db.BatchPublishParams{
 		ID:         int32(msg.Id),
@@ -62,25 +95,21 @@ func (pd *BatchPostgresDb) Save(ctx context.Context, msg pkg.Message, subject st
 	pd.messages = append(pd.messages, arg)
 	pd.counter++
 	if pd.counter == BatchSize {
-		pd.counter = 0
-		messages := make([]db.BatchPublishParams, BatchSize)
-		copy(messages, pd.messages)
-		errs := make([]chan error, len(pd.messages))
-		copy(errs, pd.err)
-		pd.messages = pd.messages[:0:0]
-		pd.err = pd.err[:0:0]
+		messages, errs := pd.getMessages()
 		go pd.persist(ctx, messages, errs)
+		log.Printf("%d messages published", len(messages))
 	}
 	pd.mu.Unlock()
-	err := <-result
-	if err != nil {
+	select {
+	case err := <-result:
 		return err
+	case <-time.After(time.Second * 6):
+		return errors.New("timeout")
 	}
-	return nil
 }
 
 func (pd *BatchPostgresDb) persist(ctx context.Context, messages []db.BatchPublishParams, errs []chan error) {
-	conn, err := pd.pool.Acquire(context.Background())
+	conn, err := pd.pool.Acquire(ctx)
 	if err != nil {
 		pd.notifyError(err, errs)
 		return
@@ -107,12 +136,16 @@ func (pd *ParallelPostgresDb) Save(ctx context.Context, msg pkg.Message, subject
 		Body:       msg.Body,
 		Subject:    subject,
 	}
-	conn, err := pd.pool.Acquire(context.Background())
+	ctx, span := pkg.Tracer.Start(ctx, "pgx.ParallelPostgresDb.Save.Acquire")
+	conn, err := pd.pool.Acquire(ctx)
+	span.End()
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
+	ctx, span = pkg.Tracer.Start(ctx, "pgx.ParallelPostgresDb.Save.Write")
 	err = pd.queries.Publish(ctx, conn, arg)
+	span.End()
 	if err != nil {
 		return err
 	}

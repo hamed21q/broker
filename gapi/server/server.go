@@ -5,6 +5,7 @@ import (
 	pb "BaleBroker/gapi/pb"
 	"BaleBroker/pkg"
 	"context"
+	"errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,8 +30,8 @@ func (server *Server) Publish(ctx context.Context, req *pb.PublishRequest) (*pb.
 	}
 	id, err := server.broker.Publish(ctx, req.GetSubject(), msg)
 	if err != nil {
-		switch err {
-		case broker.ErrUnavailable:
+		switch {
+		case errors.Is(err, broker.ErrUnavailable):
 			return nil, status.Error(codes.DeadlineExceeded, err.Error())
 		default:
 			return nil, status.Error(codes.Internal, err.Error())
@@ -60,12 +61,12 @@ func (server *Server) Subscribe(req *pb.SubscribeRequest, res grpc.ServerStreami
 func (server *Server) Fetch(ctx context.Context, req *pb.FetchRequest) (*pb.MessageResponse, error) {
 	msg, err := server.broker.Fetch(ctx, req.GetSubject(), int(req.GetId()))
 	if err != nil {
-		switch err {
-		case broker.ErrUnavailable:
+		switch {
+		case errors.Is(err, broker.ErrUnavailable):
 			return nil, status.Error(codes.DeadlineExceeded, err.Error())
-		case broker.ErrInvalidID:
+		case errors.Is(err, broker.ErrInvalidID):
 			return nil, status.Error(codes.NotFound, err.Error())
-		case broker.ErrExpiredID:
+		case errors.Is(err, broker.ErrExpiredID):
 			return nil, status.Error(codes.Unavailable, err.Error())
 		}
 	}

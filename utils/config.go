@@ -10,7 +10,7 @@ type Config struct {
 	PrometheusMetricAddress string `mapstructure:"PROMETHEUS_METRIC_ADDRESS"`
 	DBSource                string `mapstructure:"DB_SOURCE"`
 	Storage                 string `mapstructure:"STORAGE"`
-	WriteOrder              string `mapstructure:"WRITE_ORDER"`
+	TracerSource            string `mapstructure:"TRACER_SOURCE"`
 }
 
 func setDefaults() {

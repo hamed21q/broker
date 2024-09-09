@@ -36,10 +36,12 @@ func (broker *BaleBroker) Close() error {
 }
 
 func (broker *BaleBroker) Publish(ctx context.Context, subject string, msg pkg.Message) (int, error) {
+	ctx, span := pkg.Tracer.Start(ctx, "BaleBroker.Publish")
+	defer span.End()
 	if broker.Closed(ctx) {
 		return 0, ErrUnavailable
 	}
-	msg.Id = broker.identifier.GetID(subject)
+	msg.Id = broker.identifier.GetID(ctx, subject)
 	msg.CreatedAt = time.Now()
 	err := broker.db.Save(ctx, msg, subject)
 	if err != nil {
@@ -47,9 +49,12 @@ func (broker *BaleBroker) Publish(ctx context.Context, subject string, msg pkg.M
 		return 0, ErrStoreFailed
 	}
 	broker.mu.RLock()
-	defer broker.mu.RUnlock()
-	for _, sub := range broker.subs[subject] {
-		sub <- msg
+	listeners, ok := broker.subs[subject]
+	broker.mu.RUnlock()
+	if ok {
+		for _, sub := range listeners {
+			sub <- msg
+		}
 	}
 	return msg.Id, nil
 }

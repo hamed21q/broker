@@ -3,12 +3,10 @@ package main
 import (
 	"BaleBroker/gapi/pb"
 	"context"
-	"fmt"
 	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -53,26 +51,12 @@ func main() {
 
 	defer client.Close()
 
-	var goCount int32 = 1000
-
-	go func() {
-		for {
-			fmt.Print("Enter the number of requests per second: ")
-			var input int
-			_, err := fmt.Scanln(&input)
-			if err != nil {
-				log.Printf("Failed to read input: %v", err)
-				continue
-			}
-			atomic.StoreInt32(&goCount, int32(input))
-		}
-	}()
-
-	for {
-		currentRPS := atomic.LoadInt32(&goCount)
-		var i int32
-		for i = 0; i < currentRPS; i++ {
-			go func() {
+	var goCount = 500
+	var wg sync.WaitGroup
+	wg.Add(goCount)
+	for i := 0; i < goCount; i++ {
+		go func() {
+			for {
 				c := client.GetRandomClient()
 				req := &pb.PublishRequest{
 					Subject:           "ali",
@@ -83,8 +67,9 @@ func main() {
 				if err != nil {
 					log.Printf("Error while calling Publish: %v", err)
 				}
-			}()
-		}
-		time.Sleep(time.Second)
+				time.Sleep(time.Second / 10)
+			}
+		}()
 	}
+	wg.Wait()
 }

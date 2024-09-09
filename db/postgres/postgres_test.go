@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 func TestFlush(t *testing.T) {
 	var wg sync.WaitGroup
 
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 50008; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

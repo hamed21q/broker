@@ -1,4 +1,4 @@
-DB_URL = "postgresql://root:1qaz@localhost:5432/broker?sslmode=disable"
+DB_URL = "postgresql://root:1qaz@localhost:5433/broker?sslmode=disable"
 
 
 postgres:
@@ -17,7 +17,7 @@ migrateup1:
 	migrate -path db/migration -database $(DB_URL) -verbose up 1
 
 migratedown:
-	migrate -path db/migration -database $(DB_URL) -verbose down
+	migrate -path ./db/postgres/migration -database $(DB_URL) -verbose down
 
 migratedown1:
 	migrate -path db/migration -database $(DB_URL) -verbose down 1

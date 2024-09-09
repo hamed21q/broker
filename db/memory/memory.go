@@ -14,6 +14,8 @@ type MemoryDB struct {
 }
 
 func (memory *MemoryDB) Save(ctx context.Context, msg pkg.Message, subject string) error {
+	ctx, span := pkg.Tracer.Start(ctx, "db.MemoryDB.Save")
+	defer span.End()
 	memory.mutex.Lock()
 	defer memory.mutex.Unlock()
 	memory.messages[fmt.Sprintf("%v:%v", subject, msg.Id)] = msg
