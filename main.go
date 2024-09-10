@@ -4,14 +4,16 @@ import (
 	"BaleBroker/broker"
 	db "BaleBroker/db"
 	memory "BaleBroker/db/memory"
-	postgres "BaleBroker/db/postgres"
-	crud "BaleBroker/db/postgres/crud"
+	sql "BaleBroker/db/postgres"
+	postgres "BaleBroker/db/postgres/crud"
+	cql "BaleBroker/db/scylla/cql"
 	"BaleBroker/gapi/pb"
 	"BaleBroker/gapi/server"
 	"BaleBroker/pkg"
 	"BaleBroker/utils"
 	"context"
 	"fmt"
+	"github.com/gocql/gocql"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
@@ -29,22 +31,63 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
-var StorageFactoryMapper = map[string]func() db.DB{
-	"BATCH_PG": func() db.DB {
-		return postgres.NewBatchPostgresDb(pool, crud.New())
+var WriterFactory = map[string]func(db db.DB) db.Writer{
+	"BATCH": func(d db.DB) db.Writer {
+		return db.NewBatchWriter(d)
 	},
-	"PARALLEL_PG": func() db.DB {
-		return postgres.NewParallelPostgresDb(pool, crud.New())
+	"PARALLEL": func(d db.DB) db.Writer {
+		return db.NewConcurrentWriter(d)
 	},
-	"MEMORY": func() db.DB {
+}
+
+var DBFactory = map[string]func(interface{}) db.DB{
+	"POSTGRES": func(conn interface{}) db.DB {
+		return sql.NewPostgresDb(conn.(*pgxpool.Pool), postgres.New())
+	},
+	"CASSANDRA": func(conn interface{}) db.DB {
+		return cql.NewCqlDb(conn.(*gocql.Session))
+	},
+	"MEMORY": func(conn interface{}) db.DB {
 		return memory.NewMemoryDB()
 	},
 }
 
-var (
-	pool  *pgxpool.Pool
-	idGen *pkg.SequentialIdentifier
-)
+var ConnectionFactory = map[string]func(config utils.Config) (interface{}, func()){
+	"POSTGRES": func(config utils.Config) (interface{}, func()) {
+		pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig(config))
+		if err != nil {
+			log.Fatalf("can not connect to : %v", config.PGSource)
+		}
+		return pool, func() { pool.Config() }
+	},
+	"CASSANDRA": func(config utils.Config) (interface{}, func()) {
+		cluster := gocql.NewCluster(config.CassandraSource)
+		cluster.Keyspace = config.CassandraKeySpace
+		cluster.Consistency = gocql.Quorum
+		cluster.Port = config.CassandraPort
+		session, err := cluster.CreateSession()
+		if err != nil {
+			log.Fatal(err)
+		}
+		return session, func() { session.Close() }
+	},
+	"MEMORY": func(config utils.Config) (interface{}, func()) {
+		return nil, func() {}
+	},
+}
+
+var SyncFactory = map[string]func(interface{}, *pkg.SequentialIdentifier) pkg.Sync{
+	"POSTGRES": func(conn interface{}, idGen *pkg.SequentialIdentifier) pkg.Sync {
+		queries := postgres.New()
+		return pkg.NewPGSync(queries, conn.(*pgxpool.Pool), idGen)
+	},
+	"CASSANDRA": func(conn interface{}, idGen *pkg.SequentialIdentifier) pkg.Sync {
+		return nil
+	},
+	"MEMORY": func(conn interface{}, idGen *pkg.SequentialIdentifier) pkg.Sync {
+		return nil
+	},
+}
 
 func main() {
 	config, err := utils.LoadConfig(".")
@@ -57,25 +100,36 @@ func main() {
 		log.Fatalf("can not start tracing: %v", err)
 	}
 
-	pool, err = pgxpool.NewWithConfig(context.Background(), poolConfig(config.DBSource))
-	if err != nil {
-		log.Fatalf("can not connect to : %v", config.DBSource)
-	}
+	idGen := pkg.NewSequentialIdentifier()
 
-	idGen = pkg.NewSequentialIdentifier()
-	queries := crud.New()
-	idSync := pkg.NewPGSync(queries, pool, idGen)
-	err = idSync.Sync(context.Background())
-	if err != nil {
-		log.Printf("can not sync with db : %v", err.Error())
-	}
-
-	storageFactory, ok := StorageFactoryMapper[config.Storage]
+	connFactory, ok := ConnectionFactory[config.Storage]
 	if !ok {
-		log.Fatalf("can not find storage driver")
+		log.Fatalf("can not connect to storage: %v", config.Storage)
 	}
-	var storage = storageFactory()
-	baleBroker := broker.NewBaleBroker(storage, idGen)
+	conn, closer := connFactory(config)
+	defer closer()
+
+	dbFactory := DBFactory[config.Storage]
+	d := dbFactory(conn)
+
+	writerFactory, ok := WriterFactory[config.WriteMode]
+	if !ok {
+		log.Fatalf("undefiened writer: %v", config.WriteMode)
+	}
+	writer := writerFactory(d)
+
+	store := db.NewStore(writer, d)
+	baleBroker := broker.NewBaleBroker(store, idGen)
+
+	syncFactory := SyncFactory[config.Storage]
+	sync := syncFactory(conn, idGen)
+	if sync != nil {
+		err = sync.Sync(context.Background())
+		if err != nil {
+			log.Printf("can not sync with db : %v", err.Error())
+		}
+	}
+
 	rpcServer := server.NewServer(baleBroker)
 	prometheus := server.NewPrometheusMetrics()
 	grpcServer := grpc.NewServer(
@@ -102,13 +156,13 @@ func main() {
 	}
 }
 
-func poolConfig(dbUrl string) *pgxpool.Config {
-	dbConfig, err := pgxpool.ParseConfig(dbUrl)
+func poolConfig(config utils.Config) *pgxpool.Config {
+	dbConfig, err := pgxpool.ParseConfig(config.PGSource)
 	if err != nil {
 		log.Fatal("Failed to create a config, error: ", err)
 	}
 
-	dbConfig.MaxConns = int32(15)
+	dbConfig.MaxConns = int32(config.PGConnectionPoolSize)
 	dbConfig.MinConns = int32(0)
 	dbConfig.MaxConnLifetime = time.Hour
 	dbConfig.MaxConnIdleTime = time.Minute * 30
@@ -136,6 +190,7 @@ func startTracing(tracerEndpoint string) (*trace.TracerProvider, error) {
 	}
 
 	tracerProvider := trace.NewTracerProvider(
+		trace.WithSampler(trace.ParentBased(trace.TraceIDRatioBased(0.1))),
 		trace.WithBatcher(
 			exporter,
 			trace.WithMaxExportBatchSize(trace.DefaultMaxExportBatchSize),

@@ -1,7 +1,8 @@
 package broker
 
 import (
-	db "BaleBroker/db/memory"
+	db "BaleBroker/db"
+	memory "BaleBroker/db/memory"
 	"BaleBroker/pkg"
 	"context"
 	"github.com/stretchr/testify/assert"
@@ -26,8 +27,10 @@ func TestMain(m *testing.M) {
 
 func tearDownTest() {
 	idGenerator := pkg.NewSequentialIdentifier()
-	memoryDB := db.NewMemoryDB()
-	service = NewBaleBroker(memoryDB, idGenerator)
+	memoryDB := memory.NewMemoryDB()
+	writer := db.NewConcurrentWriter(memoryDB)
+	store := db.NewStore(writer, memoryDB)
+	service = NewBaleBroker(store, idGenerator)
 }
 
 func TestPublishShouldFailOnClosed(t *testing.T) {
@@ -160,7 +163,7 @@ func TestNonExpiredMessageShouldBeFetchable(t *testing.T) {
 	fMsg, err := service.Fetch(mainCtx, "ali", id)
 
 	require.NoError(t, err)
-	equalMessage(t, msg, *fMsg)
+	equalMessage(t, msg, fMsg)
 }
 
 func TestExpiredMessageShouldNotBeFetchable(t *testing.T) {

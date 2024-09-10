@@ -8,9 +8,14 @@ import (
 type Config struct {
 	GRPCServerAddress       string `mapstructure:"GRPC_SERVER_ADDRESS"`
 	PrometheusMetricAddress string `mapstructure:"PROMETHEUS_METRIC_ADDRESS"`
-	DBSource                string `mapstructure:"DB_SOURCE"`
+	PGSource                string `mapstructure:"DB_SOURCE"`
 	Storage                 string `mapstructure:"STORAGE"`
 	TracerSource            string `mapstructure:"TRACER_SOURCE"`
+	CassandraSource         string `mapstructure:"CASSANDRA_SOURCE"`
+	CassandraKeySpace       string `mapstructure:"CASSANDRA_KEYSPACE"`
+	CassandraPort           int    `mapstructure:"CASSANDRA_PORT"`
+	WriteMode               string `mapstructure:"WRITE_MODE"`
+	PGConnectionPoolSize    int    `mapstructure:"PG_CONNECTION_POOL_SIZE"`
 }
 
 func setDefaults() {

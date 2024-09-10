@@ -10,8 +10,13 @@ services:
       GRPC_SERVER_ADDRESS: "0.0.0.0:9090"
       PROMETHEUS_METRIC_ADDRESS: "0.0.0.0:9091"
       DB_SOURCE: postgresql://root:1qaz@postgres:5432/broker?sslmode=disable
-      STORAGE: "BATCH_PG"
+      STORAGE: "MEMORY"
       TRACER_SOURCE: jaeger:4318
+      WRITE_MODE: "PARALLEL"
+      PG_CONNECTION_POOL_SIZE: 1
+      CASSANDRA_SOURCE: cassandra
+      CASSANDRA_KEYSPACE: bale
+      CASSANDRA_PORT: 9097
     depends_on:
       - postgres
     deploy:
@@ -48,14 +53,14 @@ services:
       POSTGRES_PASSWORD: 1qaz
       POSTGRES_DB: broker
     ports:
-      - "5433:5432"
+      - "9095:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   postgres_exporter:
     image: quay.io/prometheuscommunity/postgres-exporter
     ports:
-      - "9187:9187"
+      - "9096:9187"
     environment:
       DATA_SOURCE_URI: "postgres:5432/broker?sslmode=disable"
       DATA_SOURCE_USER: "root"
@@ -78,7 +83,19 @@ services:
       - "14269:14269"
       - "9411:9411"
 
+  cassandra:
+    image: cassandra:latest
+    container_name: cassandra-container
+    ports:
+      - "9097:9042"
+    environment:
+      - CASSANDRA_USER=admin
+      - CASSANDRA_PASSWORD=admin
+    volumes:
+      - casandra_data:/var/lib/cassandra
+
 volumes:
   prometheus_data:
   grafana_data:
   postgres_data:
+  casandra_data:

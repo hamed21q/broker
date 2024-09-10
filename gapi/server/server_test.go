@@ -2,7 +2,8 @@ package server
 
 import (
 	"BaleBroker/broker"
-	db "BaleBroker/db/memory"
+	db "BaleBroker/db"
+	memory "BaleBroker/db/memory"
 	"BaleBroker/gapi/pb"
 	"BaleBroker/pkg"
 	"context"
@@ -21,9 +22,11 @@ import (
 var baleBroker *broker.BaleBroker
 
 func server(ctx context.Context) (pb.BrokerClient, func()) {
-	memoryDb := db.NewMemoryDB()
-	identifier := pkg.NewSequentialIdentifier()
-	baleBroker = broker.NewBaleBroker(memoryDb, identifier)
+	idGenerator := pkg.NewSequentialIdentifier()
+	memoryDB := memory.NewMemoryDB()
+	writer := db.NewConcurrentWriter(memoryDB)
+	store := db.NewStore(writer, memoryDB)
+	baleBroker = broker.NewBaleBroker(store, idGenerator)
 	brokerServer := NewServer(baleBroker)
 
 	buffer := 101024 * 1024

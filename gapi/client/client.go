@@ -42,7 +42,7 @@ func main() {
 	}
 
 	for i := 0; i < 100; i++ {
-		conn, err := grpc.NewClient("localhost:9090", grpc.WithInsecure())
+		conn, err := grpc.NewClient("localhost:8080", grpc.WithInsecure())
 		if err != nil {
 			log.Fatalf("Did not connect: %v", err)
 		}
@@ -51,7 +51,7 @@ func main() {
 
 	defer client.Close()
 
-	var goCount = 500
+	var goCount = 15000
 	var wg sync.WaitGroup
 	wg.Add(goCount)
 	for i := 0; i < goCount; i++ {
@@ -67,7 +67,7 @@ func main() {
 				if err != nil {
 					log.Printf("Error while calling Publish: %v", err)
 				}
-				time.Sleep(time.Second / 10)
+				time.Sleep(time.Second / 20)
 			}
 		}()
 	}
