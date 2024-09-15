@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: dev
+  name: broker
+  labels:
+    app: broker
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+    spec:
+      containers:
+        - name: broker
+          image: registry.gitlab.com/hamed21q/broker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: broker-config
+      imagePullSecrets:
+        - name: regcred

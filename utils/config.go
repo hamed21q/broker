@@ -16,6 +16,7 @@ type Config struct {
 	CassandraPort           int    `mapstructure:"CASSANDRA_PORT"`
 	WriteMode               string `mapstructure:"WRITE_MODE"`
 	PGConnectionPoolSize    int    `mapstructure:"PG_CONNECTION_POOL_SIZE"`
+	ProfilingServerAddress  string `mapstructure:"PROFILING_SERVER_ADDRESS"`
 }
 
 func setDefaults() {

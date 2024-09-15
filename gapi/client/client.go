@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+	//	"time"
 )
 
 type Client struct {
@@ -41,8 +42,8 @@ func main() {
 		connections: make([]*grpc.ClientConn, 0),
 	}
 
-	for i := 0; i < 100; i++ {
-		conn, err := grpc.NewClient("localhost:8080", grpc.WithInsecure())
+	for i := 0; i < 1; i++ {
+		conn, err := grpc.NewClient("localhost:9090", grpc.WithInsecure())
 		if err != nil {
 			log.Fatalf("Did not connect: %v", err)
 		}
@@ -51,12 +52,14 @@ func main() {
 
 	defer client.Close()
 
-	var goCount = 15000
+	var goCount = 60000
 	var wg sync.WaitGroup
 	wg.Add(goCount)
 	for i := 0; i < goCount; i++ {
+		time.Sleep(time.Second / time.Duration(goCount))
 		go func() {
 			for {
+				t := time.Now()
 				c := client.GetRandomClient()
 				req := &pb.PublishRequest{
 					Subject:           "ali",
@@ -67,7 +70,8 @@ func main() {
 				if err != nil {
 					log.Printf("Error while calling Publish: %v", err)
 				}
-				time.Sleep(time.Second / 20)
+				t1 := time.Since(t)
+				time.Sleep(time.Second - t1)
 			}
 		}()
 	}

@@ -1,0 +1,17 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: broker-config
+  namespace: dev
+data:
+  GRPC_SERVER_ADDRESS: "0.0.0.0:9090"
+  PROMETHEUS_METRIC_ADDRESS: "0.0.0.0:9091"
+  DB_SOURCE: "postgresql://root:1qaz@postgres-service:5432/broker?sslmode=disable"
+  STORAGE: "POSTGRES"
+  TRACER_SOURCE: "jaeger:4318"
+  WRITE_MODE: "BATCH"
+  PG_CONNECTION_POOL_SIZE: "15"
+  CASSANDRA_SOURCE: "cassandra"
+  CASSANDRA_KEYSPACE: "bale"
+  CASSANDRA_PORT: "9042"
+  PROFILING_SERVER_ADDRESS: ":6060"

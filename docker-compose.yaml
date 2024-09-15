@@ -6,17 +6,22 @@ services:
     ports:
       - "9090:9090"
       - "9091:9091"
+      - "6060:6060"
     environment:
       GRPC_SERVER_ADDRESS: "0.0.0.0:9090"
       PROMETHEUS_METRIC_ADDRESS: "0.0.0.0:9091"
       DB_SOURCE: postgresql://root:1qaz@postgres:5432/broker?sslmode=disable
-      STORAGE: "MEMORY"
+      STORAGE: "POSTGRES"
       TRACER_SOURCE: jaeger:4318
-      WRITE_MODE: "PARALLEL"
-      PG_CONNECTION_POOL_SIZE: 1
-      CASSANDRA_SOURCE: cassandra
-      CASSANDRA_KEYSPACE: bale
-      CASSANDRA_PORT: 9097
+      WRITE_MODE: "BATCH"
+      PG_CONNECTION_POOL_SIZE: 100
+      CASSANDRA_SOURCE: "cassandra"
+      CASSANDRA_KEYSPACE: "bale"
+      CASSANDRA_PORT: 9042
+      PROFILING_SERVER_ADDRESS: ":6060"
+#    depends_on:
+#      cassandra:
+#        condition: service_healthy
     depends_on:
       - postgres
     deploy:
@@ -24,6 +29,8 @@ services:
         limits:
           cpus: '4'
           memory: 2G
+    networks:
+      - bale
 
   prometheus:
     image: prom/prometheus
@@ -32,6 +39,8 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9093:9090"
+    networks:
+      - bale
 
   grafana:
     image: grafana/grafana
@@ -45,6 +54,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana:/etc/grafana/provisioning
+    networks:
+      - bale
 
   postgres:
     image: postgres:14
@@ -56,6 +67,8 @@ services:
       - "9095:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bale
 
   postgres_exporter:
     image: quay.io/prometheuscommunity/postgres-exporter
@@ -65,6 +78,8 @@ services:
       DATA_SOURCE_URI: "postgres:5432/broker?sslmode=disable"
       DATA_SOURCE_USER: "root"
       DATA_SOURCE_PASS: "1qaz"
+    networks:
+      - bale
 
   jaeger:
     image: jaegertracing/all-in-one:1.60
@@ -82,20 +97,32 @@ services:
       - "14268:14268"
       - "14269:14269"
       - "9411:9411"
+    networks:
+      - bale
 
-  cassandra:
-    image: cassandra:latest
-    container_name: cassandra-container
-    ports:
-      - "9097:9042"
-    environment:
-      - CASSANDRA_USER=admin
-      - CASSANDRA_PASSWORD=admin
-    volumes:
-      - casandra_data:/var/lib/cassandra
+#  cassandra:
+#    image: cassandra:latest
+#    ports:
+#      - "9097:9042"
+#    environment:
+#      - CASSANDRA_USER=admin
+#      - CASSANDRA_PASSWORD=admin
+#    volumes:
+#      - casandra_data:/var/lib/cassandra
+#    networks:
+#      - bale
+#    healthcheck:
+#      test: [ "CMD-SHELL", "[ $$(nodetool statusgossip) = running ]" ]
+#      interval: 30s
+#      timeout: 10s
+#      retries: 5
 
 volumes:
   prometheus_data:
   grafana_data:
   postgres_data:
-  casandra_data:
+#  casandra_data:
+
+networks:
+  bale:
+    driver: bridge

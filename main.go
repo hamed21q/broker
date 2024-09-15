@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -99,6 +100,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("can not start tracing: %v", err)
 	}
+
+	go func() {
+		log.Println("Starting pprof server on port :6060")
+		if err := http.ListenAndServe(config.ProfilingServerAddress, nil); err != nil {
+			log.Fatalf("Failed to start pprof server: %v", err)
+		}
+	}()
 
 	idGen := pkg.NewSequentialIdentifier()
 

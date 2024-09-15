@@ -22,7 +22,7 @@ type BatchWriter struct {
 }
 
 func NewBatchWriter(db DB) *BatchWriter {
-	bw := &BatchWriter{DB: db, ticker: time.NewTicker(2 * time.Second)}
+	bw := &BatchWriter{DB: db, ticker: time.NewTicker(200 * time.Millisecond)}
 	go bw.timeFlush()
 	return bw
 }
